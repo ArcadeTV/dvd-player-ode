@@ -516,3 +516,195 @@ Rather than overlaying video externally, a more elegant and integrated method is
 - Unknown buffer formats or display API specifics
 
 This feature is advanced, but elegant and fully integrated. It is a promising direction for the ODE interface and should be investigated after stable base functionality is achieved.
+
+---
+
+
+## 🛠️ ODE Integration Overview – Sony DVP-S315 (Developer Outline) 
+
+This outline describes how to physically and logically integrate a custom ODE (Optical Drive Emulator) into the Sony DVP-S315 DVD player, replacing the internal drive electronics and emulating ATAPI communication via **CN601** .
+
+### 🔧 Key Integration Points 
+
+1. **Disconnect Internal Drive** 
+ 
+- Remove the optical pickup and spindle motor assembly.
+ 
+- Detach wiring to the internal sled/tray mechanism unless reused.
+
+2. **IDE Bus Tap via CN601** 
+ 
+- Use **CN601**  to interface with the player's **IDE/ATAPI bus** .
+ 
+- CN601 carries standard IDE lines (`D0–D15`, `CS0`, `CS1`, `IOR`, `IOW`, `RESET`, `INTRQ`, `DMARQ`, `DA0–DA2`, `BSY`, `DRQ`, etc.).
+ 
+- Voltage level: **5V TTL** , requires level shifting if MCU/FPGA is 3.3V.
+
+3. **Emulation Core** 
+ 
+- Implement ATAPI device-side behavior in **FPGA or STM32** :
+ 
+  - Respond to IDENTIFY DEVICE / PACKET / REQUEST SENSE
+ 
+  - Deliver data blocks using **PIO IN**  mode (no DMA support needed)
+ 
+  - Emulate status flags (`BSY`, `DRQ`, `INTRQ`) per ATAPI protocol
+
+4. **File Source / Backend** 
+ 
+- Use a **Raspberry Pi 3B**  as file host over SPI/UART or USB
+ 
+- Filesystem contains:
+
+ 
+  - DVD ISOs
+ 
+  - VIDEO_TS folders
+ 
+- Pi receives LBA requests from the MCU/FPGA and sends back 2048-byte blocks
+
+5. **Disc/Image Selection** 
+ 
+- Controlled via:
+ 
+  - 🖥️ **Web interface**  hosted on the Pi
+ 
+  - 🔘 Optionally via button matrix on the front panel
+ 
+  - 🎮 Or intercepted remote-control commands
+
+6. **On-Screen Menu (Optional)** 
+ 
+- Inject a **virtual menu overlay**  into the analog video path by:
+ 
+  - Tapping into the **video DAC or input of the AV decoder LSI**  (e.g., CXD8730)
+ 
+  - Overlaying menu text before final composite/S-video output
+ 
+  - Triggered during idle or "NO DISC" state
+
+---
+
+## 📦 ODE Block Diagram – Developer-Facing Markdown 
+
+### 📦 ODE System Architecture – Sony DVP-S315 Integration
+
+```text
+               ┌──────────────────────────────┐
+               │   Sony DVP-S315 Mainboard    │
+               │   SH7034 + ATAPI Host Logic  │
+               └────────────┬─────────────────┘
+                            │ CN601 (IDE bus)
+                            ▼
+              ┌──────────────────────────────────┐
+              │    ODE Emulation Module (FPGA/MCU)│
+              │  ┌──────────────────────────────┐ │
+              │  │ - Emulates ATAPI device      │ │
+              │  │ - Handles PIO read transfers │ │
+              │  │ - Responds to IDE commands   │ │
+              │  └──────────────────────────────┘ │
+              │            │ SPI/UART/USB           │
+              ▼            ▼                       ▼
+        ┌────────────┐  ┌──────────────────────────────┐
+        │ CN601 ↔ IDE│  │ Raspberry Pi 3B              │
+        └────────────┘  │ - Hosts VIDEO_TS or ISO files│
+                        │ - Provides web UI            │
+                        │ - Handles block fetches      │
+                        └────────────┬─────────────────┘
+                                     │
+                                     ▼
+                          ┌────────────────────┐
+                          │ Disc/Image Select  │
+                          │   Logic (on Pi)    │
+                          ├────────────────────┤
+                          │ - Web Interface    │
+                          │ - Button Handler   │
+                          │ - RC Command Hook  │
+                          └────────┬───────────┘
+                                   │
+                        ┌──────────▼────────────┐
+                        │ (Optional) Video Menu │
+                        │ Overlay Injection     │
+                        │ - Injected at analog  │
+                        │   video DAC path      │
+                        └───────────────────────┘
+```
+
+---
+
+### ⚙️ Notes for Developers
+
+- IDE state machine must honor **ATAPI timing constraints** from host.
+- Pi must respond with low-latency sector data (consider mmap or RAM buffering).
+- Region/model flags may affect firmware paths → consider logging initial RAM during boot.
+- Ensure **DRQ timing** matches expected pulse width to avoid firmware stalls.
+- For video injection, sync with VBI or blanking interval to avoid flicker.
+
+---
+
+## 🎯 Role of the FPGA in the ODE System 
+
+🧠 **Purpose: IDE/ATAPI Protocol Emulation** 
+The **FPGA acts as the low-latency front-end**  that emulates the original ATAPI optical drive, handling the raw **IDE timing** , handshaking, and signaling at the electrical level.
+
+#### ✳️ Why not just use the Pi? 
+
+ 
+- The **Raspberry Pi’s GPIO is too slow and nondeterministic**  (Linux-based, no hard real-time)
+ 
+- IDE protocol uses strict timing for:
+
+ 
+  - `DRQ` assertion timing after command
+ 
+  - PIO read cycles (~100ns scale)
+ 
+  - Setup/hold requirements per ATA spec
+ 
+- An MCU could work (e.g., STM32F4 at 168+ MHz), but FPGA gives:
+
+ 
+  - **Precise bus signal control**
+ 
+  - **True parallelism**  for monitoring and responding to multiple lines
+ 
+  - Easier to match legacy timing (ATAPI mode 0 or 3)
+
+
+
+---
+
+
+
+## 📦 Updated Functional Split 
+
+| Function | Hardware | Justification | 
+| --- | --- | --- | 
+| ATAPI protocol (slave) | FPGA (Cyclone II) | Accurate signal timing & logic control | 
+| Sector data storage & IO | Raspberry Pi 3B | Filesystem, ISO mount, UI/API | 
+| Sector fetch over serial | UART/SPI/USB | From Pi to FPGA | 
+| Optional UI overlay / control | Raspberry Pi GPIO | Web server / RC / UI handling | 
+
+
+---
+
+## 🔌 Final Topology 
+
+
+
+```text
++------------------+         SPI/UART         +----------------------+
+           |     Raspberry Pi | <----------------------> |      FPGA (ODE Core) |
+           | - Hosts files     |                         | - IDE interface slave |
+           | - Web UI          |                         | - ATAPI handler       |
+           +------------------+                         +----------▲-----------+
+                                                                       │
+                                                                CN601 (IDE)
+                                                                       │
+                                                       +---------------+---------------+
+                                                       |   Sony DVP-S315 Mainboard     |
+                                                       |   (ATAPI host – SH7034)       |
+                                                       +-------------------------------+
+```
+
+
