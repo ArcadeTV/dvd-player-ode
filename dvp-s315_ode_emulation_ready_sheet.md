@@ -25,7 +25,7 @@ This block includes:
 
 ---
 
-## 📡 Drive Presence Detection & Servo Control (likely routed via CN601)
+## 📡 Drive Presence Detection & Servo Control (likely routed via CN601) (Correction avail.)
 
 Additional CN601 lines are likely used for signaling:
 
@@ -39,6 +39,8 @@ Additional CN601 lines are likely used for signaling:
 | `RESET_DRV`   | Drive-side reset line  | Handle as edge-triggered reset for emulated logic |
 
 ⏹️ Some of these lines may go through the ICS604 (Servo Controller), and appear on CN601 as digital control/status lines.
+
+ℹ️ **CN601**: see Chapter **Corrections** below!
 
 ---
 
@@ -84,7 +86,7 @@ Based on binary analysis of `dvp-s315_v17.bin`, the firmware does **not contain 
 - `SPDL_OK`
 - `DISC_DETECT`
 
-### ❌ No absolute memory accesses to:
+### ❌ No absolute memory accesses to
 
 - `0xFFFFD0xx` (GPIO region)
 - `0xFFFFECxx` (ATAPI register set)
@@ -92,8 +94,36 @@ Based on binary analysis of `dvp-s315_v17.bin`, the firmware does **not contain 
 
 ### 🔬 No ASCII strings suggest UI feedback for mechanical failures
 
-### ✅ ODE Implication:
+### ✅ ODE Implication
 
 You are likely safe to **tie mechanical signals like SLED_OK or SPDL_OK permanently HIGH or simulate them statically**. The firmware does not appear to depend on polling them or adjusting drive behavior based on those inputs.
 
 > This simplifies ODE implementation: focus solely on ATAPI command emulation and correct timing for `BSY`, `DRQ`, and sense data.
+
+---
+
+## 🔁 Correction: CN601 does NOT Carry Mechanical Servo Signals
+
+Previous versions of this document suggested that signals like `SPDL_OK`, `SLED_HOME`, or `DISC_DETECT` may be routed via **CN601**.
+
+### ❌ This is incorrect
+
+### ✅ Updated Analysis
+
+- **CN601** is strictly used for **IDE/ATAPI bus communication**, including:
+  - Data lines (D0–D15)
+  - Control lines (CS0, CS1, DIOR, DIOW)
+  - ATA status and command handshaking
+
+- Mechanical and servo-related signals are instead routed through:
+  - **CN302** → Tray, sled, and chucking status (e.g., `CHUCK_SW`, `TRAY_SW`, `LDMT`)
+  - **CN452** → Optical pickup and servo lines (`FOK`, `SPDL_CTL`, `TILT_CTL`, etc.)
+
+### 🧠 ODE Developer Guidance
+
+- If your ODE interfaces only with CN601, you **do not need to replicate or interpret SLED/SPDL/DETECT lines**
+- However, you **must simulate the firmware-visible behavior** of those signals via:
+  - Correct ATAPI STATUS flags (`BSY`, `DRQ`, `CHECK`)
+  - Meaningful SENSE codes (e.g., NO DISC, HARDWARE ERROR)
+
+> This clarification reduces complexity in the hardware wiring of the ODE interface.
