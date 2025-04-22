@@ -73,3 +73,27 @@ These do **not** go through CN601, but are useful to simulate drive status durin
 - `sony_dvp-s300_s305_s315_supplement-1.pdf` (Supplement with CN601 info)
 - Signal analysis from `Signal-Chain-Analysis.pdf`
 - Firmware dump `dvp-s315_v17.bin`
+
+---
+
+## 🔍 Update: SLED/SPDL Detection in Firmware
+
+Based on binary analysis of `dvp-s315_v17.bin`, the firmware does **not contain any explicit checks or memory accesses** targeting GPIO or IDE status lines commonly associated with:
+
+- `SLED_HOME`
+- `SPDL_OK`
+- `DISC_DETECT`
+
+### ❌ No absolute memory accesses to:
+
+- `0xFFFFD0xx` (GPIO region)
+- `0xFFFFECxx` (ATAPI register set)
+- `0xFFFFFECx` (interrupt config)
+
+### 🔬 No ASCII strings suggest UI feedback for mechanical failures
+
+### ✅ ODE Implication:
+
+You are likely safe to **tie mechanical signals like SLED_OK or SPDL_OK permanently HIGH or simulate them statically**. The firmware does not appear to depend on polling them or adjusting drive behavior based on those inputs.
+
+> This simplifies ODE implementation: focus solely on ATAPI command emulation and correct timing for `BSY`, `DRQ`, and sense data.
