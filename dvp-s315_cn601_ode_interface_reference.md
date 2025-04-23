@@ -105,4 +105,4 @@
 - `sony_dvp-s300_305_315.pdf` – Service Manual
 - `dvp-s315_v17.bin` – Firmware Analysis
 - SFF-8020i (ATAPI Spec)
-- Real hardware trace captures
+- Real hardware trace captures (to be made!)
